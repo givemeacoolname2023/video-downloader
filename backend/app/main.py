@@ -139,10 +139,7 @@ async def download_file(task_id: str):
     return FileResponse(
         path=filepath,
         filename=filename,
-        media_type="video/mp4",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-        },
+        media_type="application/octet-stream",
     )
 
 

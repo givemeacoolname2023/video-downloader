@@ -80,6 +80,17 @@ def _progress_hook(task_id: str):
     return hook
 
 
+# Common HTTP headers to avoid 412 / anti-bot detection
+_COMMON_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate",
+    "Referer": "https://www.bilibili.com/",
+    "Origin": "https://www.bilibili.com",
+}
+
+
 def parse_video_info(url: str) -> Dict[str, Any]:
     """
     Parse video information without downloading.
@@ -94,6 +105,18 @@ def parse_video_info(url: str) -> Dict[str, Any]:
         "extract_flat": False,
         "skip_download": True,
         "no_color": True,
+        # Anti-anti-bot: spoof HTTP headers
+        "http_headers": _COMMON_HEADERS,
+        # BiliBili specific: use multiple API clients to avoid 412
+        "extractor_args": {
+            "bilibili": {
+                "player_client": ["web", "android", "ios"],
+                "prefer_multi_flv": True,
+            },
+        },
+        # Geo bypass for region-restricted content
+        "geo_bypass": True,
+        "geo_bypass_country": "CN",
     }
     
     try:
@@ -101,7 +124,7 @@ def parse_video_info(url: str) -> Dict[str, Any]:
             info = ydl.extract_info(url, download=False)
             
             # Extract relevant info
-            duration_seconds = info.get("duration", 0) or 0
+            duration_seconds = int(info.get("duration", 0) or 0)
             hours = duration_seconds // 3600
             minutes = (duration_seconds % 3600) // 60
             seconds = duration_seconds % 60
@@ -202,18 +225,29 @@ def download_video(url: str, format_id: Optional[str] = None, task_id: Optional[
         "outtmpl": output_template,
         "progress_hooks": [_progress_hook(task_id)],
         # Prefer formats that don't need merging (mp4 with audio)
-        "format": format_id if format_id else "best[ext=mp4]/best",
+        "format": format_id if format_id else "bestvideo+bestaudio/best",
         # Merge to mp4
         "merge_output_format": "mp4",
         # Retry
-        "retries": 3,
-        "fragment_retries": 3,
-        # Throttling workarounds
+        "retries": 5,
+        "fragment_retries": 5,
+        # Anti-anti-bot: spoof HTTP headers
+        "http_headers": _COMMON_HEADERS,
+        # Throttling & anti-bot workarounds
         "extractor_args": {
             "youtube": {
                 "player_client": ["android", "web"],
-            }
+            },
+            "bilibili": {
+                "player_client": ["web", "android", "ios"],
+                "prefer_multi_flv": True,
+            },
         },
+        # Geo bypass
+        "geo_bypass": True,
+        "geo_bypass_country": "CN",
+        # Socket timeout
+        "socket_timeout": 30,
     }
     
     # Run download in a separate thread
