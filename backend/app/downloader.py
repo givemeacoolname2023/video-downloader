@@ -224,8 +224,8 @@ def download_video(url: str, format_id: Optional[str] = None, task_id: Optional[
         "no_color": True,
         "outtmpl": output_template,
         "progress_hooks": [_progress_hook(task_id)],
-        # Prefer formats that don't need merging (mp4 with audio)
-        "format": format_id if format_id else "bestvideo+bestaudio/best",
+        # Merge video stream with best audio stream to ensure audio output
+        "format": format_id + "+bestaudio/best" if format_id else "bestvideo+bestaudio/best",
         # Merge to mp4
         "merge_output_format": "mp4",
         # Retry
