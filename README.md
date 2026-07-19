@@ -142,3 +142,57 @@ npm run dev
 | 5 | 本地测试验证 | 进行中 |
 | 6 | Stripe 支付集成 | 后续 |
 | 7 | AI 增值功能 | 后续 |
+
+## 自定义配置
+
+以下是项目中可根据实际需求调整的参数，修改前建议先了解各参数的作用。
+
+### 后端核心参数（`backend/app/downloader.py`）
+
+| 参数 | 默认值 | 说明 | 修改方式 |
+|------|--------|------|----------|
+| `_COOKIE_BROWSERS` | `("edge",)` | yt-dlp 读取 Cookie 的浏览器，用于下载需要登录的平台视频 | 可改为 `("chrome",)`、`("firefox",)`、`("brave",)`，或多个 `("edge", "chrome")` |
+| `DOWNLOAD_DIR` | `backend/app/downloads/` | 下载文件存放目录 | 改为 `Path("D:/Downloads")` 等绝对路径 |
+| `_CLEANUP_INTERVAL` | `3600` 秒（1小时） | 已下载文件的自动清理间隔 | 在 `_cleanup_old_files` 函数中修改 |
+| `ytdl_format` | `'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'` | 下载格式优先级 | 按 yt-dlp format string 语法修改 |
+| `merge_output_format` | `"mp4"` | 合并后的视频容器格式 | 可改为 `"mkv"` 等 |
+| `concurrent_fragment_downloads` | `8` | 并发分片下载数 | 网络较慢时可适当减小 |
+| `quiet` / `no_warnings` | `True` / `True` | 是否隐藏 yt-dlp 日志 | 调试时改为 `False` 可查看详细日志 |
+
+### 后端服务参数（`backend/run.py`）
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `host` | `"127.0.0.1"` | 后端绑定地址，改为 `"0.0.0.0"` 可局域网访问 |
+| `port` | `8000` | 后端端口 |
+| `reload` | `True` | 代码修改后自动重启，生产环境应改为 `False` |
+| `log_level` | `"info"` | 日志级别：`debug` / `info` / `warning` / `error` |
+
+### FastAPI 应用参数（`backend/app/main.py`）
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `title` | `"Video Downloader API"` | Swagger 文档标题 |
+| `version` | `"1.0.0"` | API 版本号 |
+| `allow_origins` | `["*"]` | CORS 允许的来源域名，生产环境应限制为具体域名 |
+
+### 前端构建参数（`frontend/vite.config.js`）
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `server.port` | `5173` | 前端开发服务器端口 |
+| `proxy['/api'].target` | `'http://localhost:8000'` | 后端 API 代理目标地址 |
+| `proxy['/ws'].target` | `'ws://localhost:8000'` | WebSocket 代理目标地址 |
+
+> ⚠️ 修改端口后，请同步更新 `start-frontend.bat` 和 `start-backend.bat` 中的端口提示信息。
+
+### 前端请求参数（`frontend/src/utils/api.js`）
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `timeout` | `30000`（30秒） | axios 请求超时时间（毫秒），解析较大视频可适当调大 |
+| `baseURL` | `'/api'` | API 基础路径，一般不修改 |
+
+### 前端显示参数（`frontend/src/views/DownloadView.vue`）
+
+`supportedPlatforms` 数组控制页面底部展示的平台名称列表，可按需增删。

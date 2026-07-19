@@ -5,6 +5,7 @@ Provides video parsing, downloading and progress tracking capabilities.
 import os
 import json
 import asyncio
+import logging
 import uuid
 import threading
 import subprocess
@@ -12,6 +13,8 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
 import yt_dlp
+
+logger = logging.getLogger(__name__)
 
 # Configuration
 DOWNLOAD_DIR = Path(__file__).parent.parent / "downloads"
@@ -90,114 +93,167 @@ _COMMON_HEADERS = {
     "Origin": "https://www.bilibili.com",
 }
 
+# Browsers to try for automatic cookie extraction (in priority order)
+_COOKIE_BROWSERS: tuple = ("edge",)
+
+
+def _is_cookie_error(error_msg: str) -> bool:
+    """Check if an error is related to browser cookie extraction."""
+    msg_lower = error_msg.lower()
+    return "cookie" in msg_lower or "browser" in msg_lower
+
+
+def _build_ydl_opts(extract_only: bool = False, use_cookies: bool = False) -> Dict[str, Any]:
+    """
+    Build base yt-dlp options.
+
+    Args:
+        extract_only: If True, skip downloading (parse info only).
+        use_cookies: If True, attempt to extract cookies from local browsers for HD access.
+                     Cookie errors should be caught and retried without this flag.
+    """
+    opts: Dict[str, Any] = {
+        "quiet": True,
+        "no_warnings": True,
+        "no_color": True,
+        # Anti-anti-bot: spoof HTTP headers
+        "http_headers": _COMMON_HEADERS,
+        # Geo bypass for region-restricted content
+        "geo_bypass": True,
+        "geo_bypass_country": "CN",
+        # Retry
+        "retries": 5,
+        "fragment_retries": 5,
+        # Socket timeout
+        "socket_timeout": 30,
+    }
+
+    if extract_only:
+        opts["skip_download"] = True
+
+    if use_cookies:
+        opts["cookiesfrombrowser"] = _COOKIE_BROWSERS
+
+    return opts
+
+
+def _parse_extracted_info(info: Dict[str, Any], url: str) -> Dict[str, Any]:
+    """Process raw yt-dlp info dict into a cleaned result."""
+    duration_seconds = int(info.get("duration", 0) or 0)
+    hours = duration_seconds // 3600
+    minutes = (duration_seconds % 3600) // 60
+    seconds = duration_seconds % 60
+    if hours > 0:
+        duration_str = f"{hours}:{minutes:02d}:{seconds:02d}"
+    else:
+        duration_str = f"{minutes}:{seconds:02d}"
+
+    # Process formats - only keep relevant ones
+    raw_formats = info.get("formats", [])
+    processed_formats = []
+    seen_resolutions = set()
+
+    for f in raw_formats:
+        height = f.get("height") or 0
+        if not height or height < 360:
+            continue
+
+        resolution = f"{height}p"
+        format_id = f.get("format_id", "")
+        ext = f.get("ext", "mp4")
+        filesize = f.get("filesize") or f.get("filesize_approx") or 0
+
+        if resolution not in seen_resolutions:
+            seen_resolutions.add(resolution)
+            processed_formats.append({
+                "format_id": format_id,
+                "resolution": resolution,
+                "ext": ext,
+                "filesize": filesize if filesize > 0 else None,
+                "filesize_approx": f.get("filesize_approx") if not filesize else None,
+                "format_note": f.get("format_note", ""),
+                "vcodec": f.get("vcodec", "unknown")[:20],
+                "acodec": f.get("acodec", "unknown")[:20],
+            })
+
+    processed_formats = processed_formats[:8]
+
+    return {
+        "title": info.get("title", "Unknown Title"),
+        "thumbnail": info.get("thumbnail", ""),
+        "duration": duration_str,
+        "uploader": info.get("uploader", ""),
+        "view_count": info.get("view_count", 0),
+        "description": (info.get("description", "") or "")[:500],
+        "webpage_url": info.get("webpage_url", url),
+        "extractor": info.get("extractor", ""),
+        "formats": processed_formats,
+    }
+
+
+def _handle_download_error(error_msg: str) -> None:
+    """Map yt-dlp error messages to user-friendly Chinese messages."""
+    if "Unsupported URL" in error_msg:
+        raise ValueError("不支持的视频链接，请检查链接格式。")
+    elif "Video unavailable" in error_msg:
+        raise ValueError("视频不可用，可能已被删除或设为私密。")
+    elif "Private video" in error_msg:
+        raise ValueError("这是私密视频，无法访问。")
+    elif "This video is not available" in error_msg:
+        raise ValueError("该视频在您的地区不可用。")
+    elif "Login" in error_msg or "sign in" in error_msg:
+        raise ValueError("该平台需要登录才能访问此视频。")
+    else:
+        raise ValueError(f"解析视频失败：{error_msg[:200]}")
+
 
 def parse_video_info(url: str) -> Dict[str, Any]:
     """
     Parse video information without downloading.
     
+    Tries with browser cookies first for HD quality access; falls back to
+    cookieless mode on cookie-related errors (e.g. browser database locked).
+    
     Returns:
         dict with keys: title, thumbnail, duration, uploader, view_count, 
                        formats (list of available formats), etc.
     """
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "extract_flat": False,
-        "skip_download": True,
-        "no_color": True,
-        # Anti-anti-bot: spoof HTTP headers
-        "http_headers": _COMMON_HEADERS,
-        # BiliBili specific: use multiple API clients to avoid 412
-        "extractor_args": {
-            "bilibili": {
-                "player_client": ["web", "android", "ios"],
-                "prefer_multi_flv": True,
-            },
+    extractor_args = {
+        "bilibili": {
+            "player_client": ["web", "android", "ios"],
+            "prefer_multi_flv": True,
         },
-        # Geo bypass for region-restricted content
-        "geo_bypass": True,
-        "geo_bypass_country": "CN",
     }
-    
-    try:
+
+    def _do_parse(use_cookies: bool) -> Dict[str, Any]:
+        ydl_opts = _build_ydl_opts(extract_only=True, use_cookies=use_cookies)
+        ydl_opts["extract_flat"] = False
+        ydl_opts["extractor_args"] = extractor_args
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            
-            # Extract relevant info
-            duration_seconds = int(info.get("duration", 0) or 0)
-            hours = duration_seconds // 3600
-            minutes = (duration_seconds % 3600) // 60
-            seconds = duration_seconds % 60
-            if hours > 0:
-                duration_str = f"{hours}:{minutes:02d}:{seconds:02d}"
+            return ydl.extract_info(url, download=False)
+
+    try:
+        try:
+            info = _do_parse(use_cookies=True)
+        except yt_dlp.utils.DownloadError as e:
+            error_msg = str(e)
+            if _is_cookie_error(error_msg):
+                logger.warning("Cookie extraction failed, retrying without cookies: %s", error_msg[:100])
+                info = _do_parse(use_cookies=False)
             else:
-                duration_str = f"{minutes}:{seconds:02d}"
-            
-            # Process formats - only keep relevant ones
-            raw_formats = info.get("formats", [])
-            processed_formats = []
-            seen_resolutions = set()
-            
-            # Sort formats: prefer video+audio merged, higher quality first
-            for f in raw_formats:
-                height = f.get("height") or 0
-                if not height or height < 360:
-                    continue
-                
-                resolution = f"{height}p"
-                format_id = f.get("format_id", "")
-                ext = f.get("ext", "mp4")
-                filesize = f.get("filesize") or f.get("filesize_approx") or 0
-                
-                if resolution not in seen_resolutions:
-                    seen_resolutions.add(resolution)
-                    processed_formats.append({
-                        "format_id": format_id,
-                        "resolution": resolution,
-                        "ext": ext,
-                        "filesize": filesize if filesize > 0 else None,
-                        "filesize_approx": f.get("filesize_approx") if not filesize else None,
-                        "format_note": f.get("format_note", ""),
-                        "vcodec": f.get("vcodec", "unknown")[:20],
-                        "acodec": f.get("acodec", "unknown")[:20],
-                    })
-            
-            # Limit to top 8 formats
-            processed_formats = processed_formats[:8]
-            
-            result = {
-                "title": info.get("title", "Unknown Title"),
-                "thumbnail": info.get("thumbnail", ""),
-                "duration": duration_str,
-                "uploader": info.get("uploader", ""),
-                "view_count": info.get("view_count", 0),
-                "description": (info.get("description", "") or "")[:500],
-                "webpage_url": info.get("webpage_url", url),
-                "extractor": info.get("extractor", ""),
-                "formats": processed_formats,
-            }
-            
-            return result
-            
+                raise
+
+        return _parse_extracted_info(info, url)
+
     except yt_dlp.utils.DownloadError as e:
-        error_msg = str(e)
-        if "Unsupported URL" in error_msg:
-            raise ValueError("不支持的视频链接，请检查链接格式。")
-        elif "Video unavailable" in error_msg:
-            raise ValueError("视频不可用，可能已被删除或设为私密。")
-        elif "Private video" in error_msg:
-            raise ValueError("这是私密视频，无法访问。")
-        elif "This video is not available" in error_msg:
-            raise ValueError("该视频在您的地区不可用。")
-        elif "Login" in error_msg or "sign in" in error_msg:
-            raise ValueError("该平台需要登录才能访问此视频。")
-        else:
-            raise ValueError(f"解析视频失败：{error_msg[:200]}")
+        _handle_download_error(str(e))
 
 
 def download_video(url: str, format_id: Optional[str] = None, task_id: Optional[str] = None) -> str:
     """
     Download a video using yt-dlp.
+    
+    Tries with browser cookies first; falls back to cookieless mode on cookie errors.
     
     Args:
         url: The video URL to download
@@ -217,23 +273,12 @@ def download_video(url: str, format_id: Optional[str] = None, task_id: Optional[
     # Output template
     output_template = str(DOWNLOAD_DIR / f"%(title)s_{task_id}.%(ext)s")
     
-    # Build yt-dlp options
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "no_color": True,
+    # Shared options that don't change between attempts
+    shared_opts: Dict[str, Any] = {
         "outtmpl": output_template,
         "progress_hooks": [_progress_hook(task_id)],
-        # Merge video stream with best audio stream to ensure audio output
         "format": format_id + "+bestaudio/best" if format_id else "bestvideo+bestaudio/best",
-        # Merge to mp4
         "merge_output_format": "mp4",
-        # Retry
-        "retries": 5,
-        "fragment_retries": 5,
-        # Anti-anti-bot: spoof HTTP headers
-        "http_headers": _COMMON_HEADERS,
-        # Throttling & anti-bot workarounds
         "extractor_args": {
             "youtube": {
                 "player_client": ["android", "web"],
@@ -243,25 +288,32 @@ def download_video(url: str, format_id: Optional[str] = None, task_id: Optional[
                 "prefer_multi_flv": True,
             },
         },
-        # Geo bypass
-        "geo_bypass": True,
-        "geo_bypass_country": "CN",
-        # Socket timeout
-        "socket_timeout": 30,
     }
-    
-    # Run download in a separate thread
+
+    def _download_attempt(use_cookies: bool):
+        task.status = "downloading"
+        ydl_opts = _build_ydl_opts(extract_only=False, use_cookies=use_cookies)
+        ydl_opts.update(shared_opts)
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+
     def _download():
         try:
-            task.status = "downloading"
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-            
+            try:
+                _download_attempt(use_cookies=True)
+            except yt_dlp.utils.DownloadError as e:
+                error_msg = str(e)
+                if _is_cookie_error(error_msg):
+                    logger.warning("Cookie extraction failed during download, retrying without cookies: %s", error_msg[:100])
+                    _download_attempt(use_cookies=False)
+                else:
+                    raise
+
             # Check if completed successfully
             if task.status != "completed":
                 task.status = "completed"
                 task.progress = 100.0
-                
+
         except Exception as e:
             task.status = "error"
             task.error = str(e)[:500]
