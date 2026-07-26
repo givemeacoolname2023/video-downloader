@@ -58,8 +58,8 @@
       <div class="md:flex">
         <!-- Thumbnail -->
         <div class="md:w-80 shrink-0 bg-slate-100">
-          <img
-            v-if="videoInfo.thumbnail"
+            <img
+              v-if="videoInfo.thumbnail && !thumbnailError"
             :src="videoInfo.thumbnail"
             :alt="videoInfo.title"
             class="w-full h-48 md:h-full object-cover"
@@ -236,6 +236,7 @@ async function handleParse() {
 
   error.value = ''
   videoInfo.value = null
+  thumbnailError.value = false
   loading.value = true
 
   try {

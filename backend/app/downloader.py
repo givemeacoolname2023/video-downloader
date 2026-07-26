@@ -178,9 +178,23 @@ def _parse_extracted_info(info: Dict[str, Any], url: str) -> Dict[str, Any]:
 
     processed_formats = processed_formats[:8]
 
+    # Extract thumbnail: prefer 'thumbnails' array (highest quality last),
+    # fall back to 'thumbnail' string field
+    thumbnails_list = info.get("thumbnails", [])
+    if thumbnails_list:
+        thumbnail_url = thumbnails_list[-1].get("url", "") or thumbnails_list[0].get("url", "")
+    else:
+        thumbnail_url = info.get("thumbnail", "")
+
+    # Wrap with proxy endpoint to bypass Referer-based hotlink protection
+    # (B站, 抖音, 小红书, etc. reject direct cross-origin image requests)
+    if thumbnail_url:
+        from urllib.parse import quote
+        thumbnail_url = f"/api/proxy-image?url={quote(thumbnail_url, safe='')}"
+
     return {
         "title": info.get("title", "Unknown Title"),
-        "thumbnail": info.get("thumbnail", ""),
+        "thumbnail": thumbnail_url,
         "duration": duration_str,
         "uploader": info.get("uploader", ""),
         "view_count": info.get("view_count", 0),
@@ -235,7 +249,7 @@ def parse_video_info(url: str) -> Dict[str, Any]:
     try:
         try:
             info = _do_parse(use_cookies=True)
-        except yt_dlp.utils.DownloadError as e:
+        except (yt_dlp.utils.DownloadError, ValueError) as e:
             error_msg = str(e)
             if _is_cookie_error(error_msg):
                 logger.warning("Cookie extraction failed, retrying without cookies: %s", error_msg[:100])
@@ -245,7 +259,7 @@ def parse_video_info(url: str) -> Dict[str, Any]:
 
         return _parse_extracted_info(info, url)
 
-    except yt_dlp.utils.DownloadError as e:
+    except (yt_dlp.utils.DownloadError, ValueError) as e:
         _handle_download_error(str(e))
 
 
@@ -301,7 +315,7 @@ def download_video(url: str, format_id: Optional[str] = None, task_id: Optional[
         try:
             try:
                 _download_attempt(use_cookies=True)
-            except yt_dlp.utils.DownloadError as e:
+            except (yt_dlp.utils.DownloadError, ValueError) as e:
                 error_msg = str(e)
                 if _is_cookie_error(error_msg):
                     logger.warning("Cookie extraction failed during download, retrying without cookies: %s", error_msg[:100])

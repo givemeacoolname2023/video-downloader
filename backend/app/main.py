@@ -7,10 +7,12 @@ import uuid
 import asyncio
 from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote, urlparse
 
+import httpx
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from .downloader import (
@@ -141,6 +143,70 @@ async def download_file(task_id: str):
         filename=filename,
         media_type="application/octet-stream",
     )
+
+
+# Referer mapping for image proxy — maps domain patterns to the correct Referer header
+_REFERER_MAP = {
+    "hdslb.com": "https://www.bilibili.com/",
+    "bilibili.com": "https://www.bilibili.com/",
+    "bilivideo.com": "https://www.bilibili.com/",
+    "douyin.com": "https://www.douyin.com/",
+    "douyinpic.com": "https://www.douyin.com/",
+    "ixigua.com": "https://www.ixigua.com/",
+    "ixiguavideo.com": "https://www.ixigua.com/",
+    "xhscdn.com": "https://www.xiaohongshu.com/",
+    "xhslink.com": "https://www.xiaohongshu.com/",
+}
+
+
+def _infer_referer(image_url: str) -> Optional[str]:
+    """Guess the Referer header value from the image URL's domain."""
+    try:
+        host = urlparse(image_url).hostname or ""
+        for key, referer in _REFERER_MAP.items():
+            if key in host:
+                return referer
+    except Exception:
+        pass
+    return None
+
+
+@app.get("/api/proxy-image")
+async def proxy_image(url: str):
+    """
+    Proxy image requests to bypass Referer-based hotlink protection.
+    Sets a platform-appropriate Referer header based on the image URL domain.
+    """
+    if not url:
+        raise HTTPException(status_code=400, detail="Missing image URL")
+
+    target_url = unquote(url)
+
+    # Validate scheme
+    parsed = urlparse(target_url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="Invalid image URL scheme")
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/131.0.0.0 Safari/537.36"
+        ),
+    }
+    referer = _infer_referer(target_url)
+    if referer:
+        headers["Referer"] = referer
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            resp = await client.get(target_url, headers=headers)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail="Image fetch failed")
+            content_type = resp.headers.get("content-type", "image/jpeg")
+            return Response(content=resp.content, media_type=content_type)
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Proxy request failed: {str(e)[:200]}")
 
 
 @app.websocket("/ws/{task_id}")
