@@ -30,6 +30,16 @@ export async function startDownload(url, formatId) {
 }
 
 /**
+ * 生成视频 AI 摘要
+ * @param {string} url - 视频链接
+ * @returns {Promise<{success: boolean, message: string, data: object}>}
+ */
+export async function generateSummary(url) {
+  const { data } = await api.post('/summary', { url }, { timeout: 120000 })
+  return data
+}
+
+/**
  * 获取下载文件（触发浏览器下载）
  * @param {string} taskId - 任务 ID
  */

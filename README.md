@@ -120,6 +120,7 @@ npm run dev
 |------|------|------|
 | POST | `/api/parse` | 解析视频 URL，返回视频信息（标题、清晰度等） |
 | POST | `/api/download` | 创建下载任务，返回 task_id |
+| POST | `/api/summary` | 提取平台字幕并用 DeepSeek 生成 AI 视频总结 |
 | WS | `/ws/download/{task_id}` | WebSocket 实时推送下载进度 |
 | GET | `/api/download/{task_id}/file` | 下载完成后获取视频文件 |
 
@@ -151,7 +152,7 @@ npm run dev
 
 | 参数 | 默认值 | 说明 | 修改方式 |
 |------|--------|------|----------|
-| `_COOKIE_BROWSERS` | `("edge",)` | yt-dlp 读取 Cookie 的浏览器，用于下载需要登录的平台视频 | 可改为 `("chrome",)`、`("firefox",)`、`("brave",)`，或多个 `("edge", "chrome")` |
+| `COOKIE_FILE` | （空） | 导出的 `cookies.txt` 绝对路径（Netscape 格式，含 B 站登录 cookie），用于获取需要登录的 AI 字幕。优先于浏览器读 Cookie | 在根目录 `.env` 设置，如 `COOKIE_FILE=D:/bilibili_cookies.txt` |
 | `DOWNLOAD_DIR` | `backend/app/downloads/` | 下载文件存放目录 | 改为 `Path("D:/Downloads")` 等绝对路径 |
 | `_CLEANUP_INTERVAL` | `3600` 秒（1小时） | 已下载文件的自动清理间隔 | 在 `_cleanup_old_files` 函数中修改 |
 | `ytdl_format` | `'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'` | 下载格式优先级 | 按 yt-dlp format string 语法修改 |
@@ -175,6 +176,58 @@ npm run dev
 | `title` | `"Video Downloader API"` | Swagger 文档标题 |
 | `version` | `"1.0.0"` | API 版本号 |
 | `allow_origins` | `["*"]` | CORS 允许的来源域名，生产环境应限制为具体域名 |
+
+### 视频总结参数（`backend/app/summary.py` + `.env`）
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `DEEPSEEK_API_KEY` | （必填） | DeepSeek API Key，用于生成 AI 总结，在根目录 `.env` 配置 |
+| `DEEPSEEK_MODEL` | `deepseek-v4-flash` | DeepSeek 模型名（`deepseek-chat` 已于 2026-07-24 弃用） |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | DeepSeek API 地址 |
+| `DEEPSEEK_MAX_CHARS` | `30000` | 送入模型前截断的字幕最大字符数 |
+
+### 配置 Cookie（获取 B 站 AI 字幕）
+
+视频总结依赖字幕，而 B 站的 **AI 字幕（`ai-zh`）需要登录**才能通过平台接口拿到。因此需要把浏览器里已登录 B 站的 cookie 导出给 yt-dlp。
+
+#### 为什么要用 cookies.txt 而不是 `--cookies-from-browser`
+
+本项目**不使用 `--cookies-from-browser`**（原方案），原因：
+
+1. Edge 运行时，其 cookie 数据库会被锁定，yt-dlp 无法复制，报 `Could not copy Chrome cookie database`。
+2. Chrome/Edge **v127+** 引入了 app-bound 加密，解密密钥绑定到浏览器自身二进制，外部程序（即使是管理员）也无法解密，yt-dlp 官方已声明不会修复 Windows 上的该问题。**就算关掉 Edge 也可能失败**。
+
+改用 `cookies.txt` 后则完全绕开这两个问题：扩展导出的是**明文**，既不依赖浏览器进程，也不受加密影响，而且**全程无需关闭 Edge**。B 站 `SESSDATA` 有效期通常数月至更久，导出一次即可用很久。
+
+#### 导出 cookies.txt 的步骤
+
+1. 在 Edge 中登录 B 站（网页版）。
+2. 安装并打开 **Cookie-Editor** 扩展。
+3. 点击扩展图标 → `Export` → 选择 **Netscape format（netscape / cookies.txt）**，会下载一个 `cookies.txt` 文件。
+
+> ⚠️ 请使用 **Cookie-Editor**（或同类可信扩展）导出。不要使用曾被曝「偷取 cookie」的「Get cookies.txt」类扩展，避免泄露登录凭证。
+
+#### 配置路径
+
+把导出的文件放到项目内（**务必确认它已被忽略**，见下方 `.gitignore`），然后在根目录 `.env` 中配置其**绝对路径**：
+
+```bash
+COOKIE_FILE=E:/bilibili_cookies.txt
+```
+
+保存后**重启后端**即可。未配置 `COOKIE_FILE` 时，公开视频仍可解析、下载、总结，仅 B 站 AI 字幕受限。
+
+#### 安全提醒
+
+`cookies.txt` 含你的 B 站登录凭证，**绝不能提交到仓库**。项目已在 `.gitignore` 中忽略：
+
+```gitignore
+# Cookie 凭证文件（含登录态，绝不可提交）
+cookies.txt
+*.cookies
+```
+
+导入导出遵循该约定即可。
 
 ### 前端构建参数（`frontend/vite.config.js`）
 

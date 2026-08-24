@@ -4,3 +4,4 @@ yt-dlp==2024.12.13
 websockets==14.1
 python-multipart==0.0.19
 httpx==0.28.1
+python-dotenv==1.0.1

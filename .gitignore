@@ -33,6 +33,10 @@ backend/logs/
 .env
 .env.local
 
+# Cookie 凭证文件（含登录态，绝不可提交）
+cookies.txt
+*.cookies
+
 # 本地数据库（SQLite）
 backend/data/
 
@@ -42,3 +46,5 @@ backend/test_*.py
 # 截图等非代码文件
 *.png
 prompt.md
+
+.claude

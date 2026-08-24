@@ -10,6 +10,7 @@ from typing import Optional
 from urllib.parse import unquote, urlparse
 
 import httpx
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
@@ -22,6 +23,12 @@ from .downloader import (
     get_download_filepath,
     DOWNLOAD_DIR,
 )
+from .subtitles import extract_subtitles, SubtitleError
+from .summary import summarize_video, SummaryError
+
+# Load environment variables from the project-root .env (parent of backend/).
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+load_dotenv(_PROJECT_ROOT / ".env")
 
 app = FastAPI(
     title="Video Downloader API",
@@ -67,6 +74,16 @@ class TaskStatusResponse(BaseModel):
     speed: str = ""
     filename: str = ""
     error: str = ""
+
+
+class SummaryRequest(BaseModel):
+    url: str
+
+
+class SummaryResponse(BaseModel):
+    success: bool
+    message: str = ""
+    data: Optional[dict] = None
 
 
 @app.get("/")
@@ -143,6 +160,34 @@ async def download_file(task_id: str):
         filename=filename,
         media_type="application/octet-stream",
     )
+
+
+@app.post("/api/summary", response_model=SummaryResponse)
+def create_summary(req: SummaryRequest):
+    """
+    Generate an AI summary of a video by extracting its platform subtitles
+    and passing them to DeepSeek.
+
+    Declared as a plain ``def`` so FastAPI runs it in the thread pool, keeping
+    the event loop free while the (blocking) yt-dlp + DeepSeek work completes.
+    """
+    if not req.url.strip():
+        raise HTTPException(status_code=400, detail="请提供视频链接")
+
+    try:
+        sub = extract_subtitles(req.url.strip())
+        if not sub.get("text", "").strip():
+            return SummaryResponse(
+                success=False,
+                message="该视频暂无可用的中文字幕，无法生成总结（部分 AI 字幕需要登录 B 站）。",
+            )
+
+        result = summarize_video(sub["text"], sub.get("title", ""))
+        return SummaryResponse(success=True, data=result)
+    except (SubtitleError, SummaryError, ValueError) as e:
+        return SummaryResponse(success=False, message=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"生成总结失败：{str(e)[:200]}")
 
 
 # Referer mapping for image proxy — maps domain patterns to the correct Referer header

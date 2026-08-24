@@ -13,12 +13,29 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
 import yt_dlp
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+
+# Load environment variables from the project-root .env (parent of backend/).
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+load_dotenv(_PROJECT_ROOT / ".env")
 
 # Configuration
 DOWNLOAD_DIR = Path(__file__).parent.parent / "downloads"
 DOWNLOAD_DIR.mkdir(exist_ok=True)
+
+# Cookie source: prefer an exported cookies.txt (Netscape format). This avoids
+# --cookies-from-browser, which on Windows fails when the browser is running
+# (locked cookie DB) and for Chromium v127+ due to app-bound encryption.
+# Leave empty to run without cookies (public content still works; Bilibili
+# AI subtitles require a logged-in cookie file).
+_COOKIE_FILE = os.getenv("COOKIE_FILE", "").strip()
+if _COOKIE_FILE:
+    _cf = Path(_COOKIE_FILE).expanduser()
+    if not _cf.is_absolute():
+        _cf = _PROJECT_ROOT / _cf
+    _COOKIE_FILE = str(_cf)
 
 
 @dataclass
@@ -93,12 +110,8 @@ _COMMON_HEADERS = {
     "Origin": "https://www.bilibili.com",
 }
 
-# Browsers to try for automatic cookie extraction (in priority order)
-_COOKIE_BROWSERS: tuple = ("edge",)
-
-
 def _is_cookie_error(error_msg: str) -> bool:
-    """Check if an error is related to browser cookie extraction."""
+    """Check if an error is related to cookie loading (e.g. invalid cookies.txt)."""
     msg_lower = error_msg.lower()
     return "cookie" in msg_lower or "browser" in msg_lower
 
@@ -109,7 +122,8 @@ def _build_ydl_opts(extract_only: bool = False, use_cookies: bool = False) -> Di
 
     Args:
         extract_only: If True, skip downloading (parse info only).
-        use_cookies: If True, attempt to extract cookies from local browsers for HD access.
+        use_cookies: If True, load cookies from the configured cookies.txt
+                     (COOKIE_FILE) for access to login-gated content.
                      Cookie errors should be caught and retried without this flag.
     """
     opts: Dict[str, Any] = {
@@ -131,8 +145,8 @@ def _build_ydl_opts(extract_only: bool = False, use_cookies: bool = False) -> Di
     if extract_only:
         opts["skip_download"] = True
 
-    if use_cookies:
-        opts["cookiesfrombrowser"] = _COOKIE_BROWSERS
+    if use_cookies and _COOKIE_FILE and Path(_COOKIE_FILE).is_file():
+        opts["cookiefile"] = _COOKIE_FILE
 
     return opts
 

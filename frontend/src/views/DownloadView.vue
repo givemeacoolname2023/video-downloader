@@ -143,6 +143,11 @@
       </div>
     </div>
 
+    <!-- AI Summary -->
+    <div v-if="videoInfo && !loading" class="mt-6">
+      <SummaryPanel :url="url" />
+    </div>
+
     <!-- Supported platforms reminder -->
     <div class="mt-12 text-center">
       <h3 class="text-lg font-bold text-slate-800 mb-3">支持 1000+ 平台</h3>
@@ -178,6 +183,7 @@ import { useRoute } from 'vue-router'
 import { parseVideo, startDownload, getDownloadUrl, createDownloadSocket } from '../utils/api'
 import LoadingSpinner from '../components/LoadingSpinner.vue'
 import DownloadProgressModal from '../components/DownloadProgressModal.vue'
+import SummaryPanel from '../components/SummaryPanel.vue'
 
 const route = useRoute()
 
