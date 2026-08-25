@@ -143,9 +143,11 @@
       </div>
     </div>
 
-    <!-- AI Summary -->
-    <div v-if="videoInfo && !loading" class="mt-6">
+    <!-- AI Features: summary / mind map / Q&A -->
+    <div v-if="videoInfo && !loading" class="mt-6 space-y-6">
       <SummaryPanel :url="url" />
+      <MindMapPanel :url="url" />
+      <QaPanel :url="url" />
     </div>
 
     <!-- Supported platforms reminder -->
@@ -184,6 +186,8 @@ import { parseVideo, startDownload, getDownloadUrl, createDownloadSocket } from 
 import LoadingSpinner from '../components/LoadingSpinner.vue'
 import DownloadProgressModal from '../components/DownloadProgressModal.vue'
 import SummaryPanel from '../components/SummaryPanel.vue'
+import MindMapPanel from '../components/MindMapPanel.vue'
+import QaPanel from '../components/QaPanel.vue'
 
 const route = useRoute()
 

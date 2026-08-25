@@ -13,8 +13,8 @@
       </div>
     </div>
 
-    <!-- Loading -->
-    <div v-if="loading" class="py-4">
+    <!-- Loading (only before any text has started arriving) -->
+    <div v-if="loading && !summary" class="py-4">
       <LoadingSpinner text="AI 正在阅读字幕并生成总结，请稍候..." />
     </div>
 
@@ -36,10 +36,10 @@
       <div class="space-y-4 text-slate-700 text-[15px] leading-relaxed">
         <template v-for="(block, idx) in blocks" :key="idx">
           <h4 v-if="block.type === 'h2'" class="text-base font-bold text-slate-900 mt-3 first:mt-0">
-            {{ block.text }}
+            <InlineText :text="block.text" />
           </h4>
           <h5 v-else-if="block.type === 'h3'" class="text-sm font-bold text-slate-900 mt-2">
-            {{ block.text }}
+            <InlineText :text="block.text" />
           </h5>
           <ul v-else-if="block.type === 'ul'" class="space-y-2">
             <li
@@ -48,12 +48,18 @@
               class="flex items-start gap-2"
             >
               <span class="w-1.5 h-1.5 rounded-full bg-primary-400 mt-2 shrink-0"></span>
-              <span class="flex-1">{{ item }}</span>
+              <span class="flex-1"><InlineText :text="item" /></span>
             </li>
           </ul>
-          <p v-else class="text-slate-600">{{ block.text }}</p>
+          <p v-else class="text-slate-600"><InlineText :text="block.text" /></p>
         </template>
       </div>
+
+      <!-- Streaming indicator -->
+      <p v-if="loading" class="mt-4 flex items-center gap-2 text-xs text-slate-400">
+        <span class="w-1.5 h-1.5 rounded-full bg-primary-500 animate-pulse"></span>
+        正在生成…
+      </p>
 
       <!-- Actions -->
       <div class="mt-6 pt-4 border-t border-slate-100 flex flex-wrap items-center gap-3">
@@ -90,8 +96,9 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { generateSummary } from '../utils/api'
+import { streamSummary } from '../utils/api'
 import LoadingSpinner from './LoadingSpinner.vue'
+import InlineText from './InlineText.vue'
 
 const props = defineProps({
   url: { type: String, default: '' },
@@ -143,19 +150,21 @@ async function generate() {
   model.value = ''
   copied.value = false
 
-  try {
-    const result = await generateSummary(props.url.trim())
-    if (result.success && result.data?.summary) {
-      summary.value = result.data.summary
-      model.value = result.data.model || ''
-    } else {
-      error.value = result.message || '生成总结失败，请稍后重试。'
+  await streamSummary(
+    { url: props.url.trim() },
+    {
+      onText(chunk) {
+        summary.value += chunk
+      },
+      onError(msg) {
+        error.value = msg
+      },
+      onDone() {
+        loading.value = false
+      },
     }
-  } catch (err) {
-    error.value = err.response?.data?.detail || err.message || '生成总结失败，请检查网络后重试。'
-  } finally {
-    loading.value = false
-  }
+  )
+  loading.value = false
 }
 
 async function copySummary() {

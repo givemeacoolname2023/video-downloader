@@ -2,30 +2,22 @@
 AI video summarization using the DeepSeek API (OpenAI-compatible).
 
 Sends extracted subtitles to DeepSeek and returns a structured Chinese summary.
-Uses ``httpx`` directly (already a project dependency) instead of the OpenAI SDK.
+The network/client concerns live in :mod:`app.llm`; this module only builds the
+prompt and formats the result. :func:`summary_stream` exposes a streaming
+(token-by-token) variant so the frontend can render the summary as it arrives.
 """
-import os
-import logging
-from pathlib import Path
-from typing import Any, Dict
+import asyncio
+from typing import Any, AsyncIterator, Dict
 
-import httpx
-from dotenv import load_dotenv
+from . import llm
+from .context import get_transcript
+from .llm import LLMError
 
-logger = logging.getLogger(__name__)
+_sse = llm.sse_event
 
-# The root .env lives one level above the backend/ directory.
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-load_dotenv(_PROJECT_ROOT / ".env")
-
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
-DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
-# default to the current chat model (deepseek-chat was deprecated on 2026-07-24)
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
-DEEPSEEK_MAX_CHARS = int(os.getenv("DEEPSEEK_MAX_CHARS", "30000"))
-
-
-class SummaryError(Exception):
+# ``SummaryError`` is kept separate (subclassing ``LLMError``) so callers can
+# catch it, and for backward-compatible imports in ``main.py``.
+class SummaryError(LLMError):
     """Raised when a summary cannot be generated."""
 
 
@@ -42,54 +34,48 @@ _SYSTEM_PROMPT = (
 
 def summarize_video(text: str, title: str) -> Dict[str, Any]:
     """Generate a structured Chinese summary of the given transcript."""
-    if not DEEPSEEK_API_KEY:
-        raise SummaryError("未配置 DEEPSEEK_API_KEY，请在 .env 中设置后重启后端。")
-
-    # Truncate long transcripts to stay within the model context window.
-    if len(text) > DEEPSEEK_MAX_CHARS:
-        text = text[: DEEPSEEK_MAX_CHARS] + "\n……（字幕过长，超出部分已省略）"
+    body = llm.truncate(text, llm.DEEPSEEK_MAX_CHARS)
 
     user_prompt = (
         f"请对以下视频内容进行总结。\n\n"
         f"【视频标题】{title}\n\n"
-        f"【字幕内容】\n{text}"
+        f"【字幕内容】\n{body}"
     )
 
-    payload = {
-        "model": DEEPSEEK_MODEL,
-        "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 0.3,
-        "max_tokens": 1500,
-        "stream": False,
-    }
+    messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]
 
-    headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json",
-    }
+    content = llm.chat(messages, max_tokens=4096, temperature=0.3)
+    return {"summary": content, "model": llm.DEEPSEEK_MODEL}
+
+
+async def summary_stream(url: str) -> AsyncIterator[str]:
+    """Stream a video summary as SSE events (token-by-token).
+
+    Mirrors ``/api/qa``'s event shape: ``data: {"text": "..."}`` per chunk,
+    ``data: {"done": true}`` at the end, ``data: {"error": "..."}`` on failure.
+    """
+    try:
+        transcript = await asyncio.to_thread(get_transcript, url)
+    except Exception as e:  # noqa: BLE001
+        yield _sse({"error": str(e)[:300]})
+        return
+
+    user_prompt = (
+        f"请对以下视频内容进行总结。\n\n"
+        f"【视频标题】{transcript['title']}\n\n"
+        f"【字幕内容】\n{llm.truncate(transcript['text'], llm.DEEPSEEK_MAX_CHARS)}"
+    )
+    messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]
 
     try:
-        with httpx.Client(timeout=180.0) as client:
-            resp = client.post(
-                f"{DEEPSEEK_BASE_URL}/chat/completions",
-                json=payload,
-                headers=headers,
-            )
-        resp.raise_for_status()
-        data = resp.json()
-        content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
-        if not content:
-            raise SummaryError("AI 返回内容为空，请稍后重试。")
-        return {"summary": content, "model": DEEPSEEK_MODEL}
-    except httpx.HTTPStatusError as e:
-        detail = ""
-        try:
-            detail = e.response.text[:300]
-        except Exception:  # noqa: BLE001
-            pass
-        raise SummaryError(f"AI 接口调用失败（{e.response.status_code}）：{detail}")
-    except httpx.HTTPError as e:
-        raise SummaryError(f"AI 接口请求失败：{str(e)[:200]}")
+        async for chunk in llm.stream_chat(messages, max_tokens=4096, temperature=0.3):
+            yield _sse({"text": chunk})
+        yield _sse({"done": True})
+    except LLMError as e:
+        yield _sse({"error": str(e)[:300]})

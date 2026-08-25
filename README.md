@@ -121,6 +121,8 @@ npm run dev
 | POST | `/api/parse` | 解析视频 URL，返回视频信息（标题、清晰度等） |
 | POST | `/api/download` | 创建下载任务，返回 task_id |
 | POST | `/api/summary` | 提取平台字幕并用 DeepSeek 生成 AI 视频总结 |
+| POST | `/api/mindmap` | 基于同一份字幕生成层级思维导图（Markdown） |
+| POST | `/api/qa` | 基于字幕进行多轮 AI 问答（SSE 流式） |
 | WS | `/ws/download/{task_id}` | WebSocket 实时推送下载进度 |
 | GET | `/api/download/{task_id}/file` | 下载完成后获取视频文件 |
 
@@ -197,7 +199,7 @@ npm run dev
 1. Edge 运行时，其 cookie 数据库会被锁定，yt-dlp 无法复制，报 `Could not copy Chrome cookie database`。
 2. Chrome/Edge **v127+** 引入了 app-bound 加密，解密密钥绑定到浏览器自身二进制，外部程序（即使是管理员）也无法解密，yt-dlp 官方已声明不会修复 Windows 上的该问题。**就算关掉 Edge 也可能失败**。
 
-改用 `cookies.txt` 后则完全绕开这两个问题：扩展导出的是**明文**，既不依赖浏览器进程，也不受加密影响，而且**全程无需关闭 Edge**。B 站 `SESSDATA` 有效期通常数月至更久，导出一次即可用很久。
+改用 `cookies.txt` 后则完全绕开这两个问题：扩展导出的是**明文**，既不依赖浏览器进程，也不受加密影响，而且**全程无需关闭 Edge**。B 站 `SESSDATA` 的**到期时间**通常数月至更久；但注意服务端也可能**提前静默失效**旧会话（见下方排错），届时需重新导出一次。
 
 #### 导出 cookies.txt 的步骤
 
@@ -217,6 +219,22 @@ COOKIE_FILE=E:/bilibili_cookies.txt
 
 保存后**重启后端**即可。未配置 `COOKIE_FILE` 时，公开视频仍可解析、下载、总结，仅 B 站 AI 字幕受限。
 
+#### 排错：下载只剩 480p / 只有一个清晰度选项
+
+`cookies.txt` 里的 `SESSDATA` **过期时间在未来，不代表还能登录**。B 站在服务端会由于以下原因**静默失效**旧会话：在其它设备重新登录、退出登录、改密，或平台强制重登。一旦失效，yt-dlp 会被当作**匿名**用户，导致：
+
+- 所有视频清晰度被限到 **360p/480p**（界面只剩一两个低清选项）；
+- 大会员专属的 **1080p60 / 4K** 视频直接返回 **0 个可下载格式**，报「解析失败」。
+
+判断方法（后端/命令行跑一次）：
+
+```bash
+# 来自 cookies.txt 的 SESSDATA，nav 返回 code=-101 即「账号未登录」
+python -c "import httpx;c={'SESSDATA':'你的值'};print(httpx.get('https://api.bilibili.com/x/web-interface/nav',cookies=c,headers={'Referer':'https://www.bilibili.com/','User-Agent':'Mozilla/5.0'}).json().get('code'))"
+```
+
+**修复**：重新执行上面的「导出步骤」，导出**当前已登录** B 站的干净 `cookies.txt`，覆盖旧文件后重启后端。别复用旧文件。
+
 #### 安全提醒
 
 `cookies.txt` 含你的 B 站登录凭证，**绝不能提交到仓库**。项目已在 `.gitignore` 中忽略：
@@ -228,6 +246,24 @@ cookies.txt
 ```
 
 导入导出遵循该约定即可。
+
+### 视频增强功能：思维导图与 AI 问答
+
+在视频卡片下方提供三个能复用同一份字幕的 AI 功能（都在解析出视频后使用）：
+
+| 功能 | 接口 | 说明 |
+|------|------|------|
+| 视频总结 | `POST /api/summary` | 生成结构化中文总结（一句话概括/内容大纲/知识点/结论） |
+| 思维导图 | `POST /api/mindmap` | 生成层级 Markdown，前端用 markmap 渲染成可缩放/折叠的交互式导图 |
+| AI 问答 | `POST /api/qa` | 基于字幕多轮问答，SSE 流式逐字输出 |
+
+字幕通过**进程内内存缓存**按 URL 复用：`summary` / `mindmap` / `qa` 三个接口共享同一个提取结果，第一个功能触发提取后，其余直接复用，不会重复请求平台。缓存有容量上限（默认 50 条），进程重启后清空。
+
+问答与导图不依赖先点「总结」——各自会按需自动提取字幕。字幕仍来自平台接口（B 站 AI 字幕需登录，见上方 Cookie 配置）。
+
+#### 重要
+
+`/api/qa` 使用 **SSE（text/event-stream）** 流式返回。前端通过 `fetch` + `ReadableStream` 消费，因此开发时代理需保持流式转发，不要用会缓冲整个响应的中间件。生产环境部署到 Nginx 时需设置 `X-Accel-Buffering: no`（后端已设置该响应头）。
 
 ### 前端构建参数（`frontend/vite.config.js`）
 

@@ -13,7 +13,7 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from .downloader import (
@@ -23,8 +23,12 @@ from .downloader import (
     get_download_filepath,
     DOWNLOAD_DIR,
 )
-from .subtitles import extract_subtitles, SubtitleError
-from .summary import summarize_video, SummaryError
+from .subtitles import SubtitleError
+from .context import get_transcript
+from .summary import summary_stream, SummaryError
+from .mindmap import generate_mindmap
+from .qa import qa_stream
+from .llm import LLMError
 
 # Load environment variables from the project-root .env (parent of backend/).
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -84,6 +88,22 @@ class SummaryResponse(BaseModel):
     success: bool
     message: str = ""
     data: Optional[dict] = None
+
+
+class MindmapRequest(BaseModel):
+    url: str
+
+
+class MindmapResponse(BaseModel):
+    success: bool
+    message: str = ""
+    data: Optional[dict] = None
+
+
+class QaRequest(BaseModel):
+    url: str
+    question: str
+    history: list = []
 
 
 @app.get("/")
@@ -162,32 +182,73 @@ async def download_file(task_id: str):
     )
 
 
-@app.post("/api/summary", response_model=SummaryResponse)
-def create_summary(req: SummaryRequest):
+@app.post("/api/summary")
+async def create_summary(req: SummaryRequest):
     """
-    Generate an AI summary of a video by extracting its platform subtitles
-    and passing them to DeepSeek.
+    Stream an AI summary of a video as SSE, token-by-token.
 
-    Declared as a plain ``def`` so FastAPI runs it in the thread pool, keeping
-    the event loop free while the (blocking) yt-dlp + DeepSeek work completes.
+    Returns ``text/event-stream`` with ``data: {"text": "..."}`` chunks,
+    ``data: {"done": true}`` at the end, and ``data: {"error": "..."}`` on
+    failure (e.g. no usable subtitles).
+    """
+    if not req.url.strip():
+        raise HTTPException(status_code=400, detail="请提供视频链接")
+
+    return StreamingResponse(
+        summary_stream(req.url.strip()),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/api/mindmap", response_model=MindmapResponse)
+def create_mindmap(req: MindmapRequest):
+    """
+    Generate an interactive mind-map outline (hierarchical Markdown) for a
+    video, reusing the same cached transcript as the summary/QA features.
+
+    Plain ``def`` so the blocking extraction + LLM call runs in the thread pool.
     """
     if not req.url.strip():
         raise HTTPException(status_code=400, detail="请提供视频链接")
 
     try:
-        sub = extract_subtitles(req.url.strip())
-        if not sub.get("text", "").strip():
-            return SummaryResponse(
-                success=False,
-                message="该视频暂无可用的中文字幕，无法生成总结（部分 AI 字幕需要登录 B 站）。",
-            )
-
-        result = summarize_video(sub["text"], sub.get("title", ""))
-        return SummaryResponse(success=True, data=result)
-    except (SubtitleError, SummaryError, ValueError) as e:
-        return SummaryResponse(success=False, message=str(e))
+        transcript = get_transcript(req.url.strip())
+        result = generate_mindmap(transcript["text"], transcript["title"])
+        return MindmapResponse(success=True, data=result)
+    except (SubtitleError, LLMError, ValueError) as e:
+        return MindmapResponse(success=False, message=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"生成总结失败：{str(e)[:200]}")
+        raise HTTPException(status_code=500, detail=f"生成思维导图失败：{str(e)[:200]}")
+
+
+@app.post("/api/qa")
+async def create_qa(req: QaRequest):
+    """
+    Stream an answer to a question about a video using SSE.
+
+    Returns ``text/event-stream`` with ``data: {"text": "..."}`` chunks,
+    ``data: {"done": true}`` at the end, and ``data: {"error": "..."}`` on
+    failure. Async (not a threadpool ``def``) because we stream LLM tokens.
+    """
+    if not req.url.strip():
+        raise HTTPException(status_code=400, detail="请提供视频链接")
+    if not req.question.strip():
+        raise HTTPException(status_code=400, detail="请输入问题")
+
+    return StreamingResponse(
+        qa_stream(req.url.strip(), req.question.strip(), req.history or []),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # Referer mapping for image proxy — maps domain patterns to the correct Referer header
