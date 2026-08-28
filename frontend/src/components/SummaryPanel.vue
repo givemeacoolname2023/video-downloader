@@ -1,5 +1,5 @@
 <template>
-  <div class="card p-6">
+  <div>
     <!-- Header -->
     <div class="flex items-center gap-3 mb-5">
       <div class="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center shrink-0">
@@ -95,14 +95,19 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { streamSummary } from '../utils/api'
 import LoadingSpinner from './LoadingSpinner.vue'
 import InlineText from './InlineText.vue'
 
 const props = defineProps({
   url: { type: String, default: '' },
+  // 为 true 时，一旦有 URL 就自动生成总结（用于「解析后自动总结」）。
+  auto: { type: Boolean, default: false },
 })
+
+// 记录是否已自动触发过，避免同一份总结被重复生成。
+let autoTriggered = false
 
 const summary = ref('')
 const model = ref('')
@@ -177,4 +182,21 @@ async function copySummary() {
     // Ignore clipboard errors (e.g. non-secure context)
   }
 }
+
+// 换了一个视频后清空旧总结；若开启 auto 且尚未触发，则自动生成一次。
+// immediate 保证挂载时（解析已完成的视频）也能触发。
+watch(
+  () => props.url,
+  (val) => {
+    summary.value = ''
+    model.value = ''
+    error.value = ''
+    copied.value = false
+    if (props.auto && val.trim() && !autoTriggered) {
+      autoTriggered = true
+      generate()
+    }
+  },
+  { immediate: true }
+)
 </script>

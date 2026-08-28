@@ -1,5 +1,5 @@
 <template>
-  <div class="card p-6">
+  <div>
     <!-- Header -->
     <div class="flex items-center gap-3 mb-5">
       <div class="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center shrink-0">

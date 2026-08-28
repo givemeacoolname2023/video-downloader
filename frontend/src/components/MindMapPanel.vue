@@ -1,5 +1,5 @@
 <template>
-  <div class="card p-6">
+  <div>
     <!-- Header -->
     <div class="flex items-center gap-3 mb-5">
       <div class="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center shrink-0">
@@ -108,6 +108,9 @@ import LoadingSpinner from './LoadingSpinner.vue'
 
 const props = defineProps({
   url: { type: String, default: '' },
+  // 所在标签页当前是否可见。markmap 只有在 SVG 可见（有实际宽高）时才能渲染，
+  // 因此隐藏时生成的导图会在切换到该标签页后再渲染一次。
+  active: { type: Boolean, default: true },
 })
 
 const mindmap = ref('')
@@ -276,11 +279,17 @@ async function generate() {
       mindmap.value = result.data.mindmap
       model.value = result.data.model || ''
       await nextTick()
-      try {
-        await renderMindmap()
-      } catch (e) {
-        // If the interactive canvas fails to render, offer the outline instead.
-        renderFailed.value = true
+      // markmap 需要 SVG 可见（有真实宽高）才能正确布局。标签不可见时先跳过，
+      // 等切换到该标签页再由下方 watch active 触发渲染，避免整棵树塌缩成一点。
+      if (props.active) {
+        try {
+          await renderMindmap()
+        } catch (e) {
+          // If the interactive canvas fails to render, offer the outline instead.
+          renderFailed.value = true
+        }
+      } else {
+        renderFailed.value = false
       }
     } else {
       error.value = result.message || '生成思维导图失败，请稍后重试。'
@@ -303,6 +312,23 @@ watch(
     if (markmap) {
       markmap.destroy()
       markmap = null
+    }
+  }
+)
+
+// 标签页从隐藏切换到可见（active）时，若已有导图数据则补渲染一次。
+// markmap 在 display:none 下读不到宽高，因此必须在真正可见时才渲染。
+watch(
+  () => props.active,
+  (isActive) => {
+    if (isActive && mindmap.value) {
+      nextTick(async () => {
+        try {
+          await renderMindmap()
+        } catch (e) {
+          renderFailed.value = true
+        }
+      })
     }
   }
 )
