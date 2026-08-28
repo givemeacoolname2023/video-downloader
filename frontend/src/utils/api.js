@@ -50,6 +50,16 @@ export async function generateMindmap(url) {
 }
 
 /**
+ * 获取视频字幕列表（带时间戳）。复用与总结/导图相同的缓存字幕，不重复提取。
+ * @param {string} url - 视频链接
+ * @returns {Promise<{success: boolean, message: string, data: {title, lang, segments}}>}
+ */
+export async function getSubtitles(url) {
+  const { data } = await api.post('/subtitles', { url }, { timeout: 120000 })
+  return data
+}
+
+/**
  * 读取 POST SSE 流（data: {json} 事件，以空行分隔）。统一解析事件（text/error/done）并按回调分发。
  * @param {Response} res - fetch 返回的 stream 响应
  * @param {{onText: Function, onError: Function, onDone: Function}} handlers

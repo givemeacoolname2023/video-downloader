@@ -100,6 +100,10 @@ class MindmapResponse(BaseModel):
     data: Optional[dict] = None
 
 
+class SubtitleRequest(BaseModel):
+    url: str
+
+
 class QaRequest(BaseModel):
     url: str
     question: str
@@ -224,6 +228,35 @@ def create_mindmap(req: MindmapRequest):
         return MindmapResponse(success=False, message=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"生成思维导图失败：{str(e)[:200]}")
+
+
+@app.post("/api/subtitles")
+def get_video_subtitles(req: SubtitleRequest):
+    """
+    Return a video's subtitle segments with timestamps.
+
+    Reuses the same cached transcript as summary / mind-map / QA, so no second
+    platform request is made once those features have run. Returns
+    ``{"success", "data": {"title", "lang", "segments": [{"start", "text"}]}}``.
+    Plain ``def`` so the blocking extraction runs in the thread pool.
+    """
+    if not req.url.strip():
+        raise HTTPException(status_code=400, detail="请提供视频链接")
+
+    try:
+        transcript = get_transcript(req.url.strip())
+        return {
+            "success": True,
+            "data": {
+                "title": transcript["title"],
+                "lang": transcript.get("lang", ""),
+                "segments": transcript.get("lines", []),
+            },
+        }
+    except (SubtitleError, ValueError) as e:
+        return {"success": False, "message": str(e)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取字幕失败：{str(e)[:200]}")
 
 
 @app.post("/api/qa")

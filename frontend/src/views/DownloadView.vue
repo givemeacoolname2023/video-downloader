@@ -143,8 +143,9 @@
       </div>
     </div>
 
-    <!-- AI Features: summary / mind map / Q&A -->
+    <!-- AI Features: subtitle list / summary / mind map / Q&A -->
     <div v-if="videoInfo && !loading" class="mt-6 space-y-6">
+      <SubtitlePanel :url="url" />
       <SummaryPanel :url="url" />
       <MindMapPanel :url="url" />
       <QaPanel :url="url" />
@@ -188,6 +189,7 @@ import DownloadProgressModal from '../components/DownloadProgressModal.vue'
 import SummaryPanel from '../components/SummaryPanel.vue'
 import MindMapPanel from '../components/MindMapPanel.vue'
 import QaPanel from '../components/QaPanel.vue'
+import SubtitlePanel from '../components/SubtitlePanel.vue'
 
 const route = useRoute()
 
