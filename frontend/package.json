@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node prerender.mjs",
+    "build:spa": "vite build",
+    "prerender": "node prerender.mjs",
+    "make:og": "node scripts/make-og.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

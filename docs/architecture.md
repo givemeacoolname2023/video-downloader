@@ -309,3 +309,113 @@ video-downloader/
 ### 7.4 后端
 
 无改动。总结/导图/字幕/问答仍复用同一份字幕缓存（`context.get_transcript`），解析后自动调 `/api/summary` 即可。
+
+---
+
+## 八、SEO 搜索引擎优化（v1.2）
+
+> 目标：让用户在各大搜索引擎能优先看到本站内容。核心是把「纯客户端渲染的 SPA」升级为「构建时预渲染 + 结构化数据」，让每个页面在 HTML 源码里就有完整内容与语义标签，搜索引擎无需执行 JS 也能读懂。
+
+### 8.1 关键约束（决定了技术路线）
+
+- 当前 sandbox 无法访问 `registry.npmjs.org`（HTTP 000），**无法安装任何新依赖**（Playwright / puppeteer / @prerenderer 等预渲染插件都不能用）。
+- 本项目已自带 `@vue/server-renderer`（随 vue 一起）与 `vue-router`（含 `createMemoryHistory`）。
+- 因此选 **零依赖的 Vite-SSR 预渲染**：构建后用一个 Node 脚本跑 `renderToString` 生成静态 HTML，无需任何额外包。
+
+### 8.2 实现方式（构建时预渲染）
+
+`npm run build` 现在为 `vite build && node prerender.mjs`，分两步：
+
+1. `vite build`：照常产出 SPA 到 `dist/`（含 `index.html`、哈希后的 JS/CSS）。
+2. `node prerender.mjs`：
+   - 用 Vite 的 `createServer({ server: { middlewareMode: true } })` + `ssrLoadModule('/src/entry-server.js')` 加载 SSR 入口；
+   - 对 `['/', '/download']` 各调用 `render(path)`，用 `renderToString` 得到该路由的静态 HTML；
+   - 把结果注入到 `dist/*.html` 的 `<div id="app">`，并按路由重写 `<title>` / `meta description` / `canonical` / `og:*` / `twitter:*`；
+   - 生成 `dist/robots.txt` 与 `dist/sitemap.xml`。
+   - **容错**：任一路由渲染失败只打印错误并跳过，不会让 `npm run build` 失败，`dist/` 仍保留可用的 SPA 产出。
+
+### 8.3 新增 / 修改文件
+
+| 文件 | 类型 | 作用 |
+|------|------|------|
+| `frontend/src/seo.config.js` | 新增 | **统一配置中心**：`SITE_URL`（占位域名）、每页 `title/description`、站点级 JSON-LD `siteSchema()`。改域名只改这一处。 |
+| `frontend/src/entry-server.js` | 新增 | SSR 入口：为每个路径新建 Vue + 内存路由实例，`renderToString` 输出 `{ html, title, description }`。 |
+| `frontend/prerender.mjs` | 新增 | 构建后预渲染脚本（见 8.2），同时生成 robots.txt / sitemap.xml。 |
+| `frontend/scripts/make-og.mjs` | 新增 | 零依赖生成 1200×630 的 OG 占位图 `public/og.png`（手写 PNG + zlib 压缩）。 |
+| `frontend/public/favicon.svg` | 新增 | 修复原先 `<link rel="icon" href="/favicon.svg">` 指向的空文件 404。 |
+| `frontend/index.html` | 修改 | 修 viewport（移除 `user-scalable=no`）、加 `robots`/`theme-color` meta、`SEO_BLOCK` 占位（含 OG/Twitter/canonical）。 |
+| `frontend/src/router/index.js` | 修改 | `history` 条件化（浏览器 `createWebHistory`，Node 用 `createMemoryHistory`），`beforeEach` 加 `typeof document !== 'undefined'` 守卫；每页 `meta` 增加 `description`。 |
+| `frontend/src/main.js` | 未改 | 保持 `createApp`，零改动，无运行时行为变更。 |
+| `frontend/package.json` | 修改 | `build` → `vite build && node prerender.mjs`；新增 `build:spa`（仅 SPA）、`prerender`、`make:og` 脚本。 |
+
+### 8.4 落地 SEO 要素
+
+- **预渲染正文**：首页 Hero / 功能 / 三步流程 / 定价，下载页搜索栏与平台列表，全部写进 HTML 源码。
+- **标题 & 描述**：每页独立，主关键词前置，首页与下载页文案不同，避免站内互相抢词。
+- **Canonical**：每页自指；`/download` 页面 canonical 为 `/download`。站内各自独立。
+- **Open Graph / Twitter Card**：`summary_large_image`，指向 `/og.png`。
+- **JSON-LD 结构化数据**：`WebSite`（含 `SearchAction` 站内搜索）、`Organization`、`SoftwareApplication`。
+- **robots.txt**：`Allow: /` + `Sitemap` 指引；**sitemap.xml**：`/` 与 `/download`，含 `lastmod / changefreq / priority`。
+- **favicon**：写入真实 SVG，消除 404。
+
+### 8.5 上线前只需做的一件事
+
+改 `frontend/src/seo.config.js` 里的 `SITE_URL` 为真实域名，然后 `npm run build`。预渲染脚本会据此自动重写所有 canonical / OG / robots / sitemap 的绝对地址。
+
+### 8.6 部署注意
+
+- 预渲染在 `dist/` 里同时产出 `index.html` 与 `download.html`，静态托管需把 `/download` 映射到 `download.html`（否则 `/download` 会 404）。
+  - Netlify：在 `public/` 放 `_redirects` 内容 `/*  /index.html  200` 交给 SPA；或配置 rewrite。
+  - Vercel：默认 `/download` 走 SPA 回退到 `index.html`。若要让 /download 返回其独立 HTML，需在 `vercel.json` 加 rewrite。这会与「SPA 回退」二选一，请按托管平台实际选择。
+- 目前 `SITE_URL` 为 `https://example.com` 占位，仅用于尚未部署/无域名阶段。所有绝对地址均由此单一来源生成。
+
+---
+
+## 九、GEO 生成式引擎优化（v1.3）
+
+> 目标：让用户在与 AI 对话（ChatGPT、Claude、Perplexity、DeepSeek、Google AI Overviews 等）被问到「视频下载 / 视频总结」类问题时，优先看到并引用本站。GEO 的关键是「让 AI 更容易提取、更愿意引用、更信任」。
+
+GEO 与 SEO 不同：SEO 优化的是 URL 收录与排名；GEO 优化的是**内容的结构化程度、可引用性、可信度与站点自述**，让 LLM 能从页面里直接抽取到权威、自洽的答案。
+
+### 9.1 决策（已人工确认）
+
+| 决策点 | 结论 |
+|--------|------|
+| FAQ 放置 | **首页新增「常见问题」区块**（不改路由），并同步注入 FAQPage JSON-LD |
+| llms.txt | **生成**（AI 专用站点摘要，事实标准，纯静态文本） |
+| 信任页面 | **新增「隐私政策 + 服务条款」两页**（含 About/联系方式），带路由 + 预渲染 + 页脚接入 |
+
+### 9.2 落地内容
+
+1. **FAQ 区块 + FAQPage JSON-LD**
+   - 首页 `#faq` 区块（`<details>/<summary>` 原生展开），面向 AI 与用户列 8 条真实问答（平台支持、水印、版权、清晰度、付费、AI 功能、多端、链接留存）。
+   - 首页 `<head>` 注入 `FAQPage` 结构化数据（8 组 `Question/Answer`），与区块正文**同源于 `faq.js`**——改一处两边同步，杜绝文案/结构漂移。
+2. **llms.txt**
+   - 预渲染阶段从 `SITE_URL` 与 FAQ 数据生成 `dist/llms.txt`，用纯文本自述站点：是什么/主要能力/典型问题/权威页面入口。
+3. **信任与 E-E-A-T 页面**
+   - `/privacy`（隐私政策）与 `/terms`（服务条款），含联系邮箱与关于说明。AI 系统与评估方看重透明、合规与可信，这两页同时提供可被引用的权威背景。
+   - 页脚「法律」栏接入真实路由，底部补充联系邮箱。
+
+### 9.3 关键文件
+
+| 文件 | 类型 | 作用 |
+|------|------|------|
+| `frontend/src/faq.js` | 新增 | FAQ **唯一真源**：`faq` 数组（文案）+ `faqPageSchema()`（JSON-LD）。浏览器与 Node 共用。 |
+| `frontend/src/views/HomeView.vue` | 修改 | 新增 `#faq` 区块，`v-for faq` 渲染（仅新增内容，不改既有区块）。 |
+| `frontend/src/views/PrivacyView.vue` / `TermsView.vue` | 新增 | 两个静态 SSR 安全的信任页。 |
+| `frontend/src/router/index.js` | 修改 | 新增 `/privacy`、`/terms` 路由与 meta.description。 |
+| `frontend/src/components/Footer.vue` | 修改 | 「法律」栏接入真实路由；「联系客服」改 mailto；底部补联系邮箱。 |
+| `frontend/src/seo.config.js` | 修改 | 新增 `/privacy`、`/terms` 的 title/description。 |
+| `frontend/prerender.mjs` | 修改 | 新增两条路由入预渲染/sitemap；首页 `@graph` 追加 `FAQPage`；生成 `dist/llms.txt`。 |
+
+### 9.4 数据同源约定
+
+- 站点级（站点名、域名、logo、OG 图）→ `src/seo.config.js` 唯一来源。
+- FAQ 文案与 FAQPage schema → `src/faq.js` 唯一来源。
+- 预渲染脚本从这两个模块取数，保证页面正文、JSON-LD、llms.txt、robots/sitemap 的绝对地址永远一致。
+
+### 9.5 后续可进一步加强（本期未做）
+
+- 按平台/场景产出「教程类」长文（如「如何下载某平台高清视频」），形成内容深度与可引用密度（GEO 最吃这一项）。
+- 若上线后启用 SEO 内容，可扩充 sitemap、增加 `BreadcrumbList` 与 `VideoObject` 结构化数据。
+- 上线后把 `llms.txt` 与 `sitemap.xml` 一并纳入浏览器/搜索引擎管理后台观察收录。

@@ -32,7 +32,7 @@
           <ul class="space-y-2 text-sm">
             <li><a href="#" class="hover:text-primary-400 transition-colors">常见问题</a></li>
             <li><a href="#" class="hover:text-primary-400 transition-colors">使用教程</a></li>
-            <li><a href="#" class="hover:text-primary-400 transition-colors">联系客服</a></li>
+            <li><a href="mailto:support@example.com" class="hover:text-primary-400 transition-colors">联系客服</a></li>
             <li><a href="#" class="hover:text-primary-400 transition-colors">反馈建议</a></li>
           </ul>
         </div>
@@ -41,9 +41,9 @@
         <div>
           <h4 class="text-white font-semibold mb-3">法律</h4>
           <ul class="space-y-2 text-sm">
-            <li><a href="#" class="hover:text-primary-400 transition-colors">服务条款</a></li>
-            <li><a href="#" class="hover:text-primary-400 transition-colors">隐私政策</a></li>
-            <li><a href="#" class="hover:text-primary-400 transition-colors">版权声明</a></li>
+            <li><router-link to="/terms" class="hover:text-primary-400 transition-colors">服务条款</router-link></li>
+            <li><router-link to="/privacy" class="hover:text-primary-400 transition-colors">隐私政策</router-link></li>
+            <li><a href="#copyright" class="hover:text-primary-400 transition-colors">版权声明</a></li>
           </ul>
         </div>
       </div>
@@ -53,6 +53,9 @@
         <p>© 2026 VideoDown. All rights reserved.</p>
         <p class="text-slate-500 text-xs">
           本网站仅提供技术工具，请尊重版权，仅下载个人合法使用的内容。
+        </p>
+        <p class="text-slate-500 text-xs">
+          联系我们：<a href="mailto:support@example.com" class="hover:text-primary-400">support@example.com</a>
         </p>
       </div>
     </div>

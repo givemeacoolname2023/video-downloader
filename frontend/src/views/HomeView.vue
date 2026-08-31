@@ -290,6 +290,36 @@
       </div>
     </section>
 
+    <!-- FAQ Section -->
+    <section id="faq" class="py-20 bg-white">
+      <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center mb-12">
+          <h2 class="text-3xl md:text-4xl font-extrabold text-slate-900 mb-4">
+            常见<span class="gradient-text">问题</span>
+          </h2>
+          <p class="text-slate-500 text-lg">关于下载、画质、版权与 AI 功能的解答</p>
+        </div>
+
+        <div class="space-y-3">
+          <details
+            v-for="(item, i) in faq"
+            :key="i"
+            class="group bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 open:bg-white open:shadow-sm"
+          >
+            <summary class="flex items-center justify-between gap-4 cursor-pointer list-none text-base font-semibold text-slate-800 select-none">
+              <span>{{ item.q }}</span>
+              <span class="shrink-0 text-slate-400 transition-transform duration-200 group-open:rotate-45">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+              </span>
+            </summary>
+            <p class="mt-3 text-slate-600 text-sm leading-relaxed">{{ item.a }}</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
     <!-- CTA Section -->
     <section class="py-20 bg-hero-gradient relative overflow-hidden">
       <div class="absolute inset-0 opacity-10">
@@ -316,7 +346,7 @@
     </section>
 
     <!-- Copyright Notice -->
-    <section class="py-8 bg-slate-100">
+    <section id="copyright" class="py-8 bg-slate-100">
       <div class="max-w-4xl mx-auto px-4 text-center">
         <p class="text-slate-400 text-xs leading-relaxed">
           ⚠️ 版权声明：本工具基于开源项目 yt-dlp，仅供个人学习和研究使用。请遵守相关平台的服务条款和版权法规，
@@ -331,6 +361,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import FeatureCard from '../components/FeatureCard.vue'
+import { faq } from '../faq'
 
 const router = useRouter()
 const url = ref('')
