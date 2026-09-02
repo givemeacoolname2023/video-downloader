@@ -13,8 +13,17 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue'
 import NavBar from './components/NavBar.vue'
 import Footer from './components/Footer.vue'
+import { useAuth } from './composables/useAuth'
+
+const { init } = useAuth()
+
+// 首屏加载时恢复并拉取登录态（无 token 则保持匿名）。
+onMounted(() => {
+  init()
+})
 </script>
 
 <style>

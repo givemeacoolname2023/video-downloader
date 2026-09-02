@@ -5,3 +5,8 @@ websockets==14.1
 python-multipart==0.0.19
 httpx==0.28.1
 python-dotenv==1.0.1
+
+# 会员/支付（Stripe 订阅 + SQLAlchemy 持久化 + JWT 账号）
+stripe==9.12.0
+sqlalchemy==2.0.52
+pyjwt==2.13.0

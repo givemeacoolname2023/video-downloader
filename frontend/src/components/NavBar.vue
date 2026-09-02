@@ -28,9 +28,31 @@
           <a href="#pricing" class="text-slate-600 hover:text-primary-500 transition-colors font-medium text-sm">
             定价方案
           </a>
-          <button class="btn-primary text-sm !py-2 !px-5">
-            立即使用
-          </button>
+
+          <!-- Auth area (desktop) -->
+          <template v-if="isLoggedIn">
+            <router-link
+              v-if="isMember"
+              to="/membership"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-cta-gradient text-white text-xs font-bold"
+            >
+              ✦ 会员
+            </router-link>
+            <router-link to="/membership" class="text-slate-600 hover:text-primary-500 transition-colors font-medium text-sm">
+              {{ user?.email }}
+            </router-link>
+            <button @click="handleLogout" class="text-slate-500 hover:text-red-500 transition-colors font-medium text-sm">
+              退出
+            </button>
+          </template>
+          <template v-else>
+            <router-link to="/login" class="text-slate-600 hover:text-primary-500 transition-colors font-medium text-sm">
+              登录
+            </router-link>
+            <button @click="$router.push('/register')" class="btn-primary text-sm !py-2 !px-5">
+              免费注册
+            </button>
+          </template>
         </div>
 
         <!-- Mobile Menu Button -->
@@ -49,7 +71,16 @@
           <router-link to="/download" class="block py-2 px-4 text-slate-600 hover:text-primary-500 font-medium" @click="mobileOpen = false">开始下载</router-link>
           <a href="#features" class="block py-2 px-4 text-slate-600 hover:text-primary-500 font-medium" @click="mobileOpen = false">功能介绍</a>
           <a href="#pricing" class="block py-2 px-4 text-slate-600 hover:text-primary-500 font-medium" @click="mobileOpen = false">定价方案</a>
-          <button class="btn-primary w-full text-sm !py-2.5 mt-2">立即使用</button>
+
+          <template v-if="isLoggedIn">
+            <div class="pt-1 px-4 text-sm text-slate-500 truncate">{{ user?.email }}</div>
+            <router-link to="/membership" class="block py-2 px-4 text-primary-600 hover:text-primary-500 font-medium" @click="mobileOpen = false">会员中心</router-link>
+            <button @click="handleLogout" class="block w-full text-left py-2 px-4 text-slate-600 hover:text-red-500 font-medium">退出登录</button>
+          </template>
+          <template v-else>
+            <router-link to="/login" class="block py-2 px-4 text-slate-600 hover:text-primary-500 font-medium" @click="mobileOpen = false">登录</router-link>
+            <button @click="$router.push('/register'); mobileOpen = false" class="btn-primary w-full text-sm !py-2.5 mt-2">免费注册</button>
+          </template>
         </div>
       </transition>
     </div>
@@ -57,9 +88,21 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuth } from '../composables/useAuth'
 
+const router = useRouter()
 const mobileOpen = ref(false)
+const { user, isMember, isLoggedIn, logout } = useAuth()
+
+function handleLogout() {
+  logout()
+  mobileOpen.value = false
+  if (router.currentRoute.value.path === '/membership') {
+    router.push('/')
+  }
+}
 </script>
 
 <style scoped>

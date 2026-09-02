@@ -190,16 +190,16 @@
           <p class="text-slate-500 text-lg">免费可用，付费解锁更多高级功能</p>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
           <!-- Free Plan -->
           <div class="card p-8 flex flex-col">
             <div class="mb-6">
               <h3 class="text-xl font-bold text-slate-900 mb-2">免费版</h3>
-              <p class="text-slate-500 text-sm">轻度使用，满足基本需求</p>
+              <p class="text-slate-500 text-sm">无需注册，轻量体验</p>
             </div>
             <div class="mb-6">
               <span class="text-4xl font-extrabold text-slate-900">¥0</span>
-              <span class="text-slate-500 ml-1">/月</span>
+              <span class="text-slate-500 ml-1">/天</span>
             </div>
             <ul class="space-y-3 mb-8 flex-1">
               <li class="flex items-start gap-2 text-sm text-slate-600">
@@ -208,28 +208,29 @@
               </li>
               <li class="flex items-start gap-2 text-sm text-slate-600">
                 <svg class="w-5 h-5 text-green-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                最高 1080p 清晰度
+                每日 3 次 AI 功能
               </li>
               <li class="flex items-start gap-2 text-sm text-slate-600">
                 <svg class="w-5 h-5 text-green-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                基础下载速度
+                不限清晰度，不降画质
               </li>
             </ul>
-            <button class="btn-primary w-full">免费开始</button>
+            <button @click="$router.push('/download')" class="btn-primary w-full">免费开始</button>
           </div>
 
-          <!-- Pro Plan (Highlighted) -->
+          <!-- Member Plan (Highlighted) -->
           <div class="card p-8 flex flex-col relative ring-2 ring-primary-500 shadow-xl shadow-primary-500/10 scale-105">
             <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-cta-gradient text-white text-xs font-bold px-4 py-1 rounded-full">
-              🔥 最受欢迎
+              🔥 无限畅用
             </div>
             <div class="mb-6">
-              <h3 class="text-xl font-bold text-slate-900 mb-2">专业版</h3>
-              <p class="text-slate-500 text-sm">内容创作者首选</p>
+              <h3 class="text-xl font-bold text-slate-900 mb-2">会员版</h3>
+              <p class="text-slate-500 text-sm">下载与 AI 全部无限次使用</p>
             </div>
             <div class="mb-6">
               <span class="text-4xl font-extrabold text-slate-900">¥29</span>
               <span class="text-slate-500 ml-1">/月</span>
+              <p class="text-slate-400 text-xs mt-2">年付 ¥199（约 ¥16.6/月）</p>
             </div>
             <ul class="space-y-3 mb-8 flex-1">
               <li class="flex items-start gap-2 text-sm text-slate-600">
@@ -238,53 +239,18 @@
               </li>
               <li class="flex items-start gap-2 text-sm text-slate-600">
                 <svg class="w-5 h-5 text-green-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                最高 4K 超高清
+                AI 总结 / 思维导图 / 问答无限用
               </li>
               <li class="flex items-start gap-2 text-sm text-slate-600">
                 <svg class="w-5 h-5 text-green-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                极速下载通道
+                不限清晰度，不降画质
               </li>
               <li class="flex items-start gap-2 text-sm text-slate-600">
                 <svg class="w-5 h-5 text-green-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                批量下载支持
-              </li>
-              <li class="flex items-start gap-2 text-sm text-slate-600">
-                <svg class="w-5 h-5 text-green-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                优先技术支持
+                支持月度 / 年度订阅，随时取消
               </li>
             </ul>
-            <button class="btn-cta w-full">立即订阅</button>
-          </div>
-
-          <!-- Enterprise Plan -->
-          <div class="card p-8 flex flex-col">
-            <div class="mb-6">
-              <h3 class="text-xl font-bold text-slate-900 mb-2">企业版</h3>
-              <p class="text-slate-500 text-sm">团队/机构专属</p>
-            </div>
-            <div class="mb-6">
-              <span class="text-4xl font-extrabold text-slate-900">¥99</span>
-              <span class="text-slate-500 ml-1">/月</span>
-            </div>
-            <ul class="space-y-3 mb-8 flex-1">
-              <li class="flex items-start gap-2 text-sm text-slate-600">
-                <svg class="w-5 h-5 text-green-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                包含专业版全部功能
-              </li>
-              <li class="flex items-start gap-2 text-sm text-slate-600">
-                <svg class="w-5 h-5 text-green-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                AI 视频摘要
-              </li>
-              <li class="flex items-start gap-2 text-sm text-slate-600">
-                <svg class="w-5 h-5 text-green-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                字幕自动翻译
-              </li>
-              <li class="flex items-start gap-2 text-sm text-slate-600">
-                <svg class="w-5 h-5 text-green-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                API 接口对接
-              </li>
-            </ul>
-            <button class="btn-primary w-full">联系销售</button>
+            <button @click="$router.push('/membership')" class="btn-cta w-full">立即开通</button>
           </div>
         </div>
       </div>

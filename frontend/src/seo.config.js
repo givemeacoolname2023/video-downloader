@@ -30,6 +30,21 @@ export const PAGES = {
     description:
       '万能视频下载器的服务说明与使用规则：仅供个人学习研究，请遵守版权与平台条款，仅下载你拥有合法授权的内容。',
   },
+  '/login': {
+    title: '登录 - 万能视频下载器',
+    description:
+      '登录万能视频下载器账号，开通会员后可无限次下载视频与使用 AI 总结、思维导图与字幕导出功能。',
+  },
+  '/register': {
+    title: '注册 - 万能视频下载器',
+    description:
+      '注册万能视频下载器账号，每天免费下载 3 次、使用 AI 功能 3 次；开通会员可无限次使用全部功能。',
+  },
+  '/membership': {
+    title: '会员中心 - 开通会员无限下载与 AI',
+    description:
+      '开通万能视频下载器会员，无限次下载视频与使用 AI 总结、思维导图、字幕导出等功能；支持月付与年付，随时取消。',
+  },
 }
 
 // 站点级 JSON-LD（WebSite + SearchAction / Organization / SoftwareApplication）。

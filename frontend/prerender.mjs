@@ -16,7 +16,7 @@ import { faq, faqPageSchema } from './src/faq.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = __dirname
 const dist = resolve(root, 'dist')
-const ROUTES = ['/', '/download', '/privacy', '/terms']
+const ROUTES = ['/', '/download', '/privacy', '/terms', '/login', '/register', '/membership']
 
 // 在 <head> 中替换/插入的一整套页面级 SEO 标签。
 function buildSeoBlock(path) {

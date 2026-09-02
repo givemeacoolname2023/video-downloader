@@ -1,11 +1,41 @@
 <template>
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
     <!-- Header -->
-    <div class="text-center mb-10">
+    <div class="text-center mb-6">
       <h1 class="text-3xl md:text-4xl font-extrabold text-slate-900 mb-3">
         视频<span class="gradient-text">下载</span>
       </h1>
       <p class="text-slate-500">粘贴视频链接，一键解析下载</p>
+    </div>
+
+    <!-- Free quota banner (hidden for members) -->
+    <div v-if="authReady && !isMember" class="max-w-2xl mx-auto mb-8">
+      <div
+        class="flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 rounded-2xl border bg-white px-5 py-3 text-sm shadow-sm"
+        :class="exhausted ? 'border-amber-200 bg-amber-50/60' : 'border-slate-200'"
+      >
+        <span class="text-slate-500">今日免费额度</span>
+        <span class="inline-flex items-center gap-1.5">
+          <svg class="w-4 h-4 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+          下载
+          <strong :class="downloadsLeft === 0 ? 'text-red-500' : 'text-slate-800'">{{ downloadsLeft }}</strong>
+          / {{ dlLimit }}
+        </span>
+        <span class="text-slate-300">|</span>
+        <span class="inline-flex items-center gap-1.5">
+          <svg class="w-4 h-4 text-accent-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>
+          AI
+          <strong :class="aiLeft === 0 ? 'text-red-500' : 'text-slate-800'">{{ aiLeft }}</strong>
+          / {{ aiLimit }}
+        </span>
+        <router-link
+          v-if="exhausted"
+          to="/membership"
+          class="font-semibold text-primary-500 hover:underline"
+        >
+          升级会员享无限 →
+        </router-link>
+      </div>
     </div>
 
     <!-- Search Bar -->
@@ -177,14 +207,35 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { parseVideo, startDownload, getDownloadUrl, createDownloadSocket } from '../utils/api'
 import LoadingSpinner from '../components/LoadingSpinner.vue'
 import DownloadProgressModal from '../components/DownloadProgressModal.vue'
 import AiFeatureTabs from '../components/AiFeatureTabs.vue'
+import { useAuth } from '../composables/useAuth'
 
 const route = useRoute()
+const auth = useAuth()
+
+// 免费配额展示（会员隐藏横幅）
+const authReady = computed(() => auth.ready.value)
+const isMember = computed(() => auth.isMember.value)
+const dl = computed(() => auth.quota.value?.downloads || null)
+const ai = computed(() => auth.quota.value?.ai || null)
+const dlLimit = computed(() => dl.value?.limit ?? 3)
+const aiLimit = computed(() => ai.value?.limit ?? 3)
+const downloadsLeft = computed(() =>
+  dl.value?.unlimited ? 99 : Math.max(0, (dl.value?.limit ?? 3) - (dl.value?.used ?? 0))
+)
+const aiLeft = computed(() =>
+  ai.value?.unlimited ? 99 : Math.max(0, (ai.value?.limit ?? 3) - (ai.value?.used ?? 0))
+)
+const exhausted = computed(
+  () =>
+    (dl.value && dl.value.unlimited === false && dl.value.used >= dl.value.limit) ||
+    (ai.value && ai.value.unlimited === false && ai.value.used >= ai.value.limit)
+)
 
 const url = ref('')
 const loading = ref(false)
@@ -280,6 +331,8 @@ async function handleDownload() {
 
       // Connect WebSocket for progress
       connectProgressSocket(result.task_id)
+      // 刷新免费额度（每次启动下载消耗一次）
+      auth.refresh()
     } else {
       throw new Error(result.message || '启动下载失败')
     }
@@ -368,6 +421,7 @@ function handleModalClose() {
 
 // Pre-fill URL from query parameter
 onMounted(() => {
+  auth.refresh()
   if (route.query.url) {
     url.value = route.query.url
     handleParse()

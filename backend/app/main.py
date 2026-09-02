@@ -11,7 +11,7 @@ from urllib.parse import unquote, urlparse
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
@@ -29,6 +29,12 @@ from .summary import summary_stream, SummaryError
 from .mindmap import generate_mindmap
 from .qa import qa_stream
 from .llm import LLMError
+
+# Membership / payments
+from . import gating, security
+from .auth import current_user_id, router as auth_router
+from .payments import router as payments_router
+from .db import init_db
 
 # Load environment variables from the project-root .env (parent of backend/).
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -48,6 +54,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Create the SQLite tables on startup (users / memberships / usage / events).
+init_db()
+
+# Membership & payments routes.
+app.include_router(auth_router)
+app.include_router(payments_router)
+
+
+def enforce_and_count(request: Request, category: str) -> None:
+    """Resolve the caller (user or anonymous device) and consume one quota unit.
+
+    Raises 429 QuotaExceeded when a free subject has run out of today's
+    allowance. ``parse`` stays free; only downloads and the four AI endpoints
+    are gated. The server is the authoritative gate — the UI only displays it.
+    """
+    user_id = current_user_id(request)
+    subject = security.resolve_subject(request, user_id)
+    try:
+        gating.enforce_quota(subject, category, user_id=user_id)
+    except gating.QuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
 
 
 class ParseRequest(BaseModel):
@@ -140,13 +168,16 @@ async def parse_video(req: ParseRequest):
 
 
 @app.post("/api/download", response_model=DownloadResponse)
-async def start_download(req: DownloadRequest):
+async def start_download(request: Request, req: DownloadRequest):
     """
     Start a video download task.
     Returns a task_id for tracking progress.
     """
     if not req.url.strip():
         raise HTTPException(status_code=400, detail="请提供视频链接")
+
+    # Consume one free daily download allowance (members are unlimited).
+    enforce_and_count(request, gating.CATEGORY_DOWNLOAD)
 
     try:
         task_id = download_video(
@@ -187,7 +218,7 @@ async def download_file(task_id: str):
 
 
 @app.post("/api/summary")
-async def create_summary(req: SummaryRequest):
+async def create_summary(request: Request, req: SummaryRequest):
     """
     Stream an AI summary of a video as SSE, token-by-token.
 
@@ -197,6 +228,9 @@ async def create_summary(req: SummaryRequest):
     """
     if not req.url.strip():
         raise HTTPException(status_code=400, detail="请提供视频链接")
+
+    # Consume one free daily AI allowance (members are unlimited).
+    enforce_and_count(request, gating.CATEGORY_AI)
 
     return StreamingResponse(
         summary_stream(req.url.strip()),
@@ -210,7 +244,7 @@ async def create_summary(req: SummaryRequest):
 
 
 @app.post("/api/mindmap", response_model=MindmapResponse)
-def create_mindmap(req: MindmapRequest):
+def create_mindmap(request: Request, req: MindmapRequest):
     """
     Generate an interactive mind-map outline (hierarchical Markdown) for a
     video, reusing the same cached transcript as the summary/QA features.
@@ -219,6 +253,9 @@ def create_mindmap(req: MindmapRequest):
     """
     if not req.url.strip():
         raise HTTPException(status_code=400, detail="请提供视频链接")
+
+    # Consume one free daily AI allowance (members are unlimited).
+    enforce_and_count(request, gating.CATEGORY_AI)
 
     try:
         transcript = get_transcript(req.url.strip())
@@ -231,7 +268,7 @@ def create_mindmap(req: MindmapRequest):
 
 
 @app.post("/api/subtitles")
-def get_video_subtitles(req: SubtitleRequest):
+def get_video_subtitles(request: Request, req: SubtitleRequest):
     """
     Return a video's subtitle segments with timestamps.
 
@@ -242,6 +279,9 @@ def get_video_subtitles(req: SubtitleRequest):
     """
     if not req.url.strip():
         raise HTTPException(status_code=400, detail="请提供视频链接")
+
+    # Consume one free daily AI allowance (members are unlimited).
+    enforce_and_count(request, gating.CATEGORY_AI)
 
     try:
         transcript = get_transcript(req.url.strip())
@@ -260,7 +300,7 @@ def get_video_subtitles(req: SubtitleRequest):
 
 
 @app.post("/api/qa")
-async def create_qa(req: QaRequest):
+async def create_qa(request: Request, req: QaRequest):
     """
     Stream an answer to a question about a video using SSE.
 
@@ -272,6 +312,9 @@ async def create_qa(req: QaRequest):
         raise HTTPException(status_code=400, detail="请提供视频链接")
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="请输入问题")
+
+    # Consume one free daily AI allowance (members are unlimited).
+    enforce_and_count(request, gating.CATEGORY_AI)
 
     return StreamingResponse(
         qa_stream(req.url.strip(), req.question.strip(), req.history or []),

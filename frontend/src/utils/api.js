@@ -8,6 +8,74 @@ const api = axios.create({
   },
 })
 
+// ── 会员/账号：localStorage 存 token + 匿名设备号，自动注入每个请求 ──────────
+// 只在浏览器读写 localStorage（SSR/预渲染没有 window，统一走守卫函数）。
+const TOKEN_KEY = 'vd_token'
+const USER_KEY = 'vd_user'
+const DEVICE_KEY = 'vd_device_id'
+
+function ssLocalStorage() {
+  return typeof window === 'undefined' ? null : window.localStorage
+}
+
+function genDeviceId() {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID().replace(/-/g, '')
+    }
+  } catch (e) {
+    /* ignore */
+  }
+  return 'dev_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
+}
+
+/** 确保存在一个匿名设备号并返回（无 window 时返回空串）。 */
+export function ensureDeviceId() {
+  const ls = ssLocalStorage()
+  if (!ls) return ''
+  let id = ls.getItem(DEVICE_KEY)
+  if (!id) {
+    id = genDeviceId()
+    ls.setItem(DEVICE_KEY, id)
+  }
+  return id
+}
+
+function getToken() {
+  const ls = ssLocalStorage()
+  return ls ? ls.getItem(TOKEN_KEY) : null
+}
+
+/** 给原生 fetch 请求（SSE 等）补上 Authorization / X-Device-Id。 */
+export function buildAuthHeaders(extra = {}) {
+  const headers = { ...extra }
+  const token = getToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const device = ensureDeviceId()
+  if (device) headers['X-Device-Id'] = device
+  return headers
+}
+
+// axios 拦截器：请求注入鉴权头；401 时清除过期登录态（不影响匿名用户）。
+api.interceptors.request.use((cfg) => {
+  const token = getToken()
+  if (token) cfg.headers['Authorization'] = `Bearer ${token}`
+  const device = ensureDeviceId()
+  if (device) cfg.headers['X-Device-Id'] = device
+  return cfg
+})
+
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401 && ssLocalStorage()?.getItem(TOKEN_KEY)) {
+      ssLocalStorage().removeItem(TOKEN_KEY)
+      ssLocalStorage().removeItem(USER_KEY)
+    }
+    return Promise.reject(err)
+  }
+)
+
 /**
  * 解析视频 URL，获取视频信息
  * @param {string} url - 视频链接
@@ -132,7 +200,7 @@ async function _postSse(path, payload, { onText, onError, onDone, signal, errorT
   try {
     res = await fetch(path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(payload),
       signal,
     })
@@ -187,6 +255,37 @@ export function getDownloadUrl(taskId) {
  * @param {string} taskId - 任务 ID
  * @returns {WebSocket}
  */
+export async function register(credentials) {
+  const { data } = await api.post('/auth/register', credentials)
+  return data // { token, user }
+}
+
+export async function login(credentials) {
+  const { data } = await api.post('/auth/login', credentials)
+  return data // { token, user }
+}
+
+export async function fetchMe() {
+  const { data } = await api.get('/auth/me')
+  return data // { user, is_member, membership, quota }
+}
+
+export async function fetchQuota() {
+  const { data } = await api.get('/quota')
+  return data
+}
+
+/** 创建 Stripe 下单（订阅）。mock 模式返回本地下单结果，真实模式返回跳转 URL。 */
+export async function createCheckout(plan) {
+  const { data } = await api.post('/payments/checkout', { plan })
+  return data // { url, session_id, mock }
+}
+
+/** mock 模式专用：模拟付款成功，授予会员。 */
+export async function mockActivate(plan) {
+  const { data } = await api.post('/dev/mock-activate', { plan })
+  return data // /auth/me 形状
+}
 export function createDownloadSocket(taskId) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const wsUrl = `${protocol}//${window.location.host}/ws/${taskId}`
